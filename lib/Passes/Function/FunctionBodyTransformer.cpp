@@ -1,3 +1,4 @@
+#include <sstream>
 #include "Passes/Function/FunctionBodyTransformer.h"
 
 #include "Passes/Function/FunctionDeclarer.h"

@@ -1,3 +1,4 @@
+#include <sstream>
 #include "Passes/Module/ModuleSpecCollector.h"
 #include "Util/Constants.h"
 #include "Util/Exceptions.h"
