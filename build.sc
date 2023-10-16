@@ -6,86 +6,90 @@ import me.pieterbos.mill.cpp._
 
 // def standard = T[options.CppStandard] { options.CppStandard.Cpp14 }
 
-object main extends RootModule with CppModule { outer =>
-	def root = T { millSourcePath }
-	def sources = T { Seq.empty[PathRef] }
-	def moduleDeps = Seq(origin, passes, transform, util)
+object main extends RootModule with CppExecutableModule { outer =>
+	def root: T[os.Path] = T { millSourcePath }
 
-	def llvmInc: T[Seq[String]] = T { Seq("-I/usr/include/llvm-15/", "-I/usr/include/llvm-c-15/") }
-	def jsonInc: T[Seq[String]] = T { Seq("-I" + json.download().path.toString()) }
+	object llvm extends LinkableModule {
+		def moduleDeps = Nil
+		def systemLibraryDeps = T { Seq("LLVM-15") }
+		def staticObjects = T { Seq.empty[PathRef] }
+		def dynamicObjects = T { Seq.empty[PathRef] }
+		def exportIncludePaths = T.sources(
+			os.Path("/usr/include/llvm-15"), 
+			os.Path("/usr/include/llvm-c-15"),
+		)
+	}
+
+	object json extends LinkableModule {
+		def moduleDeps = Nil
+		def systemLibraryDeps = T { Seq.empty[String] }
+		def staticObjects = T { Seq.empty[PathRef] }
+		def dynamicObjects = T { Seq.empty[PathRef] }
+		def exportIncludePaths = T {
+			os.write(T.dest / "json.tar.xz", requests.get.stream("https://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz"))
+			os.proc("tar", "-xf", T.dest / "json.tar.xz").call(cwd = T.dest)
+			Seq(PathRef(T.dest / "json" / "include"))
+		}
+	}
 
 	object origin extends CppModule {
 		def standard = T[options.CppStandard] { options.CppStandard.Cpp20 }
+		def moduleDeps = Seq(llvm, json)
 		def sources = T { Seq(PathRef(outer.root() / "lib" / "Origin")) }
 		def includePaths = T { Seq(PathRef(outer.root() / "include")) }
-		def additionalOptions = T { outer.llvmInc() ++ outer.jsonInc() }
 	}
 
 	object passes extends CppModule {
 		def standard = T[options.CppStandard] { options.CppStandard.Cpp20 }
+		def moduleDeps = Seq(llvm, proto.colProto)
 		def sources = T { Seq(PathRef(outer.root() / "lib" / "Passes")) }
 		def includePaths = T { Seq(PathRef(outer.root() / "include")) }
-		def additionalOptions = T { outer.llvmInc() }
-		def moduleDeps = Seq(outer.proto)
 	}
 
 	object transform extends CppModule {
+		def standard = T[options.CppStandard] { options.CppStandard.Cpp20 }
+		def moduleDeps = Seq(llvm, proto.colProto)
 		def sources = T { Seq(PathRef(outer.root() / "lib" / "Transform")) }
 		def includePaths = T { Seq(PathRef(outer.root() / "include")) }
-		def additionalOptions = T {
-			Seq[String](
-				// "-I/usr/include/llvm-15/",
-				// "-I/usr/include/llvm-c-15/",
-				// "-I" + outer.json.download().path.toString(),
-			)
-		}
 	}
 
 	object util extends CppModule {
+		def standard = T[options.CppStandard] { options.CppStandard.Cpp20 }
+		def moduleDeps = Seq(llvm)
 		def sources = T { Seq(PathRef(outer.root() / "lib" / "Util")) }
 		def includePaths = T { Seq(PathRef(outer.root() / "include")) }
-		def additionalOptions = T {
-			Seq[String](
-				// "-I/usr/include/llvm-15/",
-				// "-I/usr/include/llvm-c-15/",
-				// "-I" + outer.json.download().path.toString(),
-			)
+	}
+
+	def standard = T[options.CppStandard] { options.CppStandard.Cpp20 }
+	def moduleDeps = Seq(origin, passes, transform, util, llvm, proto.colProto)
+	def sources = T { Seq(PathRef(root() / "tools" / "VCLLVM")) }
+	def includePaths = T { Seq(PathRef(root() / "include")) }	
+
+	object proto extends CMakeModule {
+		def root = T.source(os.Path("/home/pieter/protobuf"))
+		def jobs = T { 24 }
+
+		object libprotobuf extends CMakeLibrary {
+			def target = T { "libprotobuf" }
 		}
-	}
 
-	def additionalOptions = T {
-		Seq(
-			"-I/usr/include/llvm-15/",
-			"-I/usr/include/llvm-c-15/",
-			"-I" + json.download().path.toString(),
-		)
-	}
-
-	object json extends Module {
-		def download = T {
-			os.write(T.dest / "json.tar.xz", requests.get.stream("https://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz"))
-			os.proc("tar", "-xf", T.dest / "json.tar.xz").call(cwd = T.dest)
-			PathRef(T.dest / "json" / "include")
+		object protoc extends CMakeExecutable {
+			def target = T { "protoc" }
 		}
-	}
 
-	object proto extends CppModule {
 		def protoPath = T { millSourcePath }
 		def proto = T { PathRef(protoPath() / "col.proto") }
 
 		def generate = T {
-			os.proc("protoc", "-I=" + protoPath().toString(),  "--cpp_out=" + T.dest.toString(), proto().path).call()
+			os.proc(protoc.executable().path, "-I=" + protoPath().toString,  "--cpp_out=" + T.dest.toString, proto().path).call()
 			T.dest
 		}
 
-		def standard = T[options.CppStandard] { options.CppStandard.Cpp14 }
-
-		def sources = T {
-			Seq(PathRef(generate() / "col.pb.cc"))
-		}
-
-		def includePaths = T {
-			Seq(PathRef(generate()))
+		object colProto extends CppModule {
+			def standard = T[options.CppStandard] { options.CppStandard.Cpp20 }
+			def moduleDeps = Seq(libprotobuf)
+			def sources = T { Seq(PathRef(generate())) }
+			def includePaths = T { Seq(PathRef(generate())) }
 		}
 	}
 }
