@@ -1,4 +1,4 @@
-import $ivy.`me.pieterbos::me.pieterbos.mill.cpp:0.0.1`
+import $ivy.`me.pieterbos::mill-cpp::0.0.1`
 
 import mill._
 
